@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { JSDOM } from 'jsdom'
 import { z } from 'zod'
+import TurndownService from 'turndown'
 import { DataSource, Equal } from 'typeorm'
 import { ICommonObject, IDatabaseEntity, IFileUpload, IMessage, INodeData, IVariable, MessageContentImageUrl } from './Interface'
 import { AES, enc } from 'crypto-js'
@@ -757,7 +758,7 @@ export const mapChatMessageToBaseMessage = async (chatmessages: any[] = [], orgI
                                 }
                             }
                             const documents: string = await fileLoaderNodeInstance.init(nodeData, '', options)
-                            messageWithFileUploads += `<doc name='${upload.name}'>${documents}</doc>\n\n`
+                            messageWithFileUploads += `<doc name='${upload.name}'>${handleEscapeCharacters(documents, true)}</doc>\n\n`
                         }
                     }
                     const messageContent = messageWithFileUploads ? `${messageWithFileUploads}\n\n${message.content}` : message.content
@@ -942,10 +943,13 @@ export const getVars = async (
     nodeData: INodeData,
     options: ICommonObject
 ) => {
+    if (!options.workspaceId) {
+        return []
+    }
     const variables =
         ((await appDataSource
             .getRepository(databaseEntities['Variable'])
-            .findBy(options.workspaceId ? { workspaceId: Equal(options.workspaceId) } : {})) as IVariable[]) ?? []
+            .findBy({ workspaceId: Equal(options.workspaceId) })) as IVariable[]) ?? []
 
     // override variables defined in overrideConfig
     // nodeData.inputs.vars is an Object, check each property and override the variable
@@ -1066,7 +1070,17 @@ export const mapMimeTypeToInputField = (mimeType: string) => {
         case 'text/jsonl':
             return 'jsonlinesFile'
         case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        case 'application/msword': {
             return 'docxFile'
+        }
+        case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        case 'application/vnd.ms-excel': {
+            return 'excelFile'
+        }
+        case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+        case 'application/vnd.ms-powerpoint': {
+            return 'powerpointFile'
+        }
         case 'application/vnd.yaml':
         case 'application/x-yaml':
         case 'text/vnd.yaml':
@@ -1087,6 +1101,19 @@ export const mapMimeTypeToExt = (mimeType: string) => {
     switch (mimeType) {
         case 'text/plain':
             return 'txt'
+        case 'text/html':
+            return 'html'
+        case 'text/css':
+            return 'css'
+        case 'text/javascript':
+        case 'application/javascript':
+            return 'js'
+        case 'text/xml':
+        case 'application/xml':
+            return 'xml'
+        case 'text/markdown':
+        case 'text/x-markdown':
+            return 'md'
         case 'application/pdf':
             return 'pdf'
         case 'application/json':
@@ -1105,6 +1132,10 @@ export const mapMimeTypeToExt = (mimeType: string) => {
             return 'xls'
         case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
             return 'xlsx'
+        case 'application/vnd.ms-powerpoint':
+            return 'ppt'
+        case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+            return 'pptx'
         default:
             return ''
     }
@@ -1308,4 +1339,12 @@ export const refreshOAuth2Token = async (
 
     // Token is not expired, return original data
     return credentialData
+}
+
+export const stripHTMLFromToolInput = (input: string) => {
+    const turndownService = new TurndownService()
+    let cleanedInput = turndownService.turndown(input)
+    // After conversion, replace any escaped underscores with regular underscores
+    cleanedInput = cleanedInput.replace(/\\_/g, '_')
+    return cleanedInput
 }
